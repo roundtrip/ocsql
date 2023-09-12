@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"reflect"
 	"strconv"
 	"sync"
+	"unicode/utf8"
 
 	"go.opencensus.io/trace"
 )
@@ -1034,10 +1036,21 @@ func argToAttr(key string, val interface{}) trace.Attribute {
 	case bool:
 		return trace.BoolAttribute(key, v)
 	case []byte:
+		// Check for UTF-8 validity before adding attribute as a string,
+		// otherwise it will fail to serialize to a protocol buffer when
+		// exporting to Stackdriver.
 		if len(v) > 256 {
 			v = v[0:256]
 		}
-		return trace.StringAttribute(key, fmt.Sprintf("%s", v))
+		if utf8.Valid(v) {
+			return trace.StringAttribute(key, string(v))
+		}
+
+		// Fall back to showing a hex representation.
+		if len(v) > 128 {
+			v = v[0:128]
+		}
+		return trace.StringAttribute(key, hex.EncodeToString(v))
 	default:
 		s := fmt.Sprintf("%v", v)
 		if len(s) > 256 {
